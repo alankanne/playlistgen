@@ -1,0 +1,117 @@
+  
+  <!--Mood-based playlist generator client-->
+  <!--Alan Kanne-->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Mood-Based Spotify Playlist</title>
+</head>
+<body>
+  <h1>Mood-Based Playlist Generator</h1>
+
+
+  <div id="login-section">
+    <p>Log in with Spotify:</p>
+    <a id="loginBtn" href="#">Login</a>
+  </div>
+
+  <!-- main App (hidden until logged in) -->
+  <div id="app-section" style="display: none;">
+    <h3>Enter your current mood or message:</h3>
+    <textarea id="moodText" rows="4" cols="50" placeholder="e.g., I'm so excited for this weekend!"></textarea>
+    <br />
+    <button id="generateBtn">Generate Playlist</button>
+    <p id="result"></p>
+  </div>
+
+  <script>
+    const clientId = '6004a57474cc4b508d4889dd60a1ba5e'; //spotify key here
+    const redirectUri = 'https://playlist-gen.s3.us-east-2.amazonaws.com/index.html'; //return uri, matches spotify dev settings"
+    const apiGatewayUrl = 'https://jh9pe3uu4m.execute-api.us-east-2.amazonaws.com/generate'; //api"
+    
+    //perms for reading top artists & creating playlists
+    const scopes = [
+      'user-top-read',
+      'playlist-modify-private', 
+      'playlist-modify-public'
+    ];
+
+    // construct spotify auth url
+    const authUrl = `https://accounts.spotify.com/authorize` +
+                    `?client_id=${clientId}` +
+                    `&response_type=token` +
+                    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                    `&scope=${encodeURIComponent(scopes.join(' '))}` +
+                    `&show_dialog=true`;
+
+    // assign the login button link to the authUrl
+    document.getElementById('loginBtn').href = authUrl;
+
+    window.addEventListener('load', () => {
+      // check if we have an #access_token in the URL
+      if (window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const token = hashParams.get('access_token');
+        
+        if (token) {
+          // store token in sessionStorage (ephemeral)
+          sessionStorage.setItem('spotify_access_token', token);
+          // remove the hash from the URL for cleanliness
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+
+      // check if we have a token saved
+      const storedToken = sessionStorage.getItem('spotify_access_token');
+      if (storedToken) {
+        // hide the login button, show the mood input section
+        document.getElementById('login-section').style.display = 'none';
+        document.getElementById('app-section').style.display = 'block';
+      }
+    });
+
+    //handle use of button
+    document.getElementById('generateBtn').addEventListener('click', async () => {
+      const storedToken = sessionStorage.getItem('spotify_access_token');
+      //not logged in
+      if (!storedToken) {
+        alert('No Spotify access token found. Please log in again.');
+        return;
+      }
+      //user didn't input
+      const moodText = document.getElementById('moodText').value.trim();
+      if (!moodText) {
+        alert('Please enter some mood text first.');
+        return;
+      }
+
+      try {
+        //call api gateway endpoint->lambda
+        const response = await fetch(apiGatewayUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: moodText,
+            spotify_access_token: storedToken
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server responded with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        // data should contain { "playlist_url": "..." }
+        document.getElementById('result').innerHTML = `
+          <p>Playlist created!</p>
+          <p><a href="${data.playlist_url}" target="_blank">Open Spotify Playlist</a></p>
+        `;
+      } catch (error) {
+        console.error('Error generating playlist:', error);
+        document.getElementById('result').innerText = 'Error generating playlist. Check console for details.';
+      }
+    });
+  </script>
+</body>
+</html>
